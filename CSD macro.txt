@@ -1,0 +1,1850 @@
+Sub Main()
+
+' **** this macro requires only 4 product category files (MI0011 to MI0014) residing in current folder,
+'
+'***** please ensure only these 4 .csv files in the current folder, no any other .csv
+'
+' ***** for more information refer to MI Stream.doc
+
+Application.ScreenUpdating = False
+
+' Clear the decks ready for import
+Call ClearDecks
+
+' Now import the Clementine files
+Call ImportCSVs
+
+' Populate the calculated sheets
+Call PopulateCalcSheets
+
+' Check the CSDBGTR template has all the rows required
+Call CheckCSDBGTRTemplate
+
+' Copy the CSDBGTR template sheet and populate it with the SG info
+Call PopulateCSDSGTR
+
+
+Application.ScreenUpdating = True
+
+Beep
+Beep
+Beep
+
+
+End Sub
+
+Sub ClearDecks()
+
+' Clears the import sheets and sets them up ready for import
+
+If ThisWorkbook.Sheets("Front").Cells(3, 8).Value = True Then
+    MsgBox ("You have selected incremental read and only this week data will be read in")
+    MsgBox ("Please make sure history data are already saved in this file to last week, and PLEASE SAVE this file when macro finishes for next week's use")
+    ' Alternative way is only export one week data from Clem to csv, and read all things in, code below must be changed
+
+Else
+
+With ThisWorkbook
+
+    ' Clear decks and add the row and column headings
+    .Sheets("Template 1").Cells.Copy
+
+       
+    .Sheets("Total Value").Cells(1, 1).PasteSpecial
+    .Sheets("Total Transactions").Cells(1, 1).PasteSpecial
+    .Sheets("Total Volume").Cells(1, 1).PasteSpecial
+    
+    .Sheets("L4W Value").Cells(1, 1).PasteSpecial
+    .Sheets("L4W Transactions").Cells(1, 1).PasteSpecial
+    .Sheets("L4W Volume").Cells(1, 1).PasteSpecial
+    
+    .Sheets("YTD Value").Cells(1, 1).PasteSpecial
+    .Sheets("YTD Transactions").Cells(1, 1).PasteSpecial
+    .Sheets("YTD Volume").Cells(1, 1).PasteSpecial
+        
+End With
+
+End If
+
+End Sub
+
+Sub ImportCSVs()
+
+
+
+' Imports the CSV files from Clementine; ONLY 4 csv files can exist in current directory
+' Array to add leading 0
+WeekArray = Array("00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53")
+
+Set fs = Application.FileSearch
+
+InputFolder = ThisWorkbook.Path
+
+fs.LookIn = InputFolder
+
+fs.Filename = "*.csv"
+
+If fs.Execute > 0 Then
+
+    ' Process the files
+    For i = 1 To fs.FoundFiles.Count
+        
+     If ThisWorkbook.Sheets("Front").Cells(3, 8).Value = True Then ' Incremental read flag is true
+     
+     Open fs.FoundFiles(i) For Input As #1
+     LastSlash = Len(fs.FoundFiles(i)) - InStrRev(fs.FoundFiles(i), "\")
+     FoundCSV = Right(fs.FoundFiles(i), LastSlash)
+          '  FoundCSV = Right(fs.FoundFiles(i), 20)
+        FileType = Left(FoundCSV, 6)
+       '
+              Select Case FileType
+                    
+                    Case "MI0011"   ' Weekly Estate
+                    
+       ' FileYear = Mid(FoundCSV, 8, 4)
+       'FileWeek = Mid(FoundCSV, 15, 2)
+        ' ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & FileYear & FileWeek
+         'read title row
+         Input #1, YearNum, WeekNum, TransCount, SalesValue, SalesQty ', ATV
+        
+                    ' Alternative way is to read all rows and only keep last line (discarded), not ideal
+                    
+                    ' Read from user input in sheet("front") D4/D6 and compare with lines read, not just read last line blindly.
+                    ' This is better if we need to incremental a few weeks
+                    
+           Do While Not EOF(1)
+                    
+                        Input #1, YearNum, WeekNum, TransCount, SalesValue, SalesQty ', ATV
+                  
+                  
+                If (YearNum = CInt(ThisWorkbook.Sheets("Front").Cells(6, 4).Value)) And _
+                    (WeekNum = CInt(ThisWorkbook.Sheets("Front").Cells(4, 4).Value)) Then
+
+               
+                    
+                LastLine_Year = YearNum
+                LastLine_Week = WeekNum
+                ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & YearNum & WeekArray(WeekNum)
+                ColumnIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+        
+                   If ColumnIndex <> 0 Then
+                
+                        ' Drop values into working sheets
+                    ThisWorkbook.Sheets("Total Value").Cells(5, ColumnIndex).Value = SalesValue
+                    ThisWorkbook.Sheets("Total Volume").Cells(5, ColumnIndex).Value = SalesQty
+                    ThisWorkbook.Sheets("Total Transactions").Cells(5, ColumnIndex).Value = TransCount
+                        
+                   End If
+                End If
+           Loop
+         Close #1
+           
+                  
+                    Case "MI0012"   ' Weekly Category
+                    
+                    ' Read title row (discarded)
+                    Input #1, CatNum, CatDesc, YearNum, WeekNum, TransCount, ItemExtendedPrice, ItemQty ', ATV
+                    
+                    '
+                    
+                   Do While Not EOF(1)    ' Check for end of file.
+   
+                        ' Read data row
+                        Input #1, CatNum, CatDesc, YearNum, WeekNum, TransCount, ItemExtendedPrice, ItemQty ', ATV
+       
+       If ((YearNum = LastLine_Year) And (WeekNum = LastLine_Week)) Then
+                        ' Drop values into working sheets
+        ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & YearNum & WeekArray(WeekNum)
+        ColumnIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+        
+            If ColumnIndex <> 0 Then
+                        
+                        TargetRow = Application.WorksheetFunction.Match(CatDesc, ThisWorkbook.Sheets("Template 1").Range("a10:a19"), 0) + 9
+                        
+                        ' Drop values into working sheets
+                            
+                        ThisWorkbook.Sheets("Total Value").Cells(TargetRow, ColumnIndex).Value = ItemExtendedPrice
+                        ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, ColumnIndex).Value = ItemQty
+                        ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, ColumnIndex).Value = TransCount
+            End If
+        End If
+                    Loop
+                    ' Drop values into working sheets
+                        
+                    Close #1
+                    
+                    
+                    
+                    Case "MI0013"   ' Weekly Buying Group
+                    
+                    ' Read title row (discarded)
+                    Input #1, CatNum, CatDesc, YearNum, WeekNum, TransCount, ItemExtendedPrice, ItemQty ', ATV
+                    
+                    '
+                    
+                   Do While Not EOF(1)    ' Check for end of file.
+   
+                        ' Read data row
+                        Input #1, CatNum, CatDesc, YearNum, WeekNum, TransCount, ItemExtendedPrice, ItemQty ', ATV
+                            
+       If ((YearNum = LastLine_Year) And (WeekNum = LastLine_Week)) Then
+                        ' Drop values into working sheets
+        ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & YearNum & WeekArray(WeekNum)
+        ColumnIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+        
+            If ColumnIndex <> 0 Then
+                        
+                         TargetRow = Application.WorksheetFunction.Match(CatDesc, ThisWorkbook.Sheets("Template 1").Range("a20:a79"), 0) + 19
+                       
+                        ' Drop values into working sheets
+                            
+                        ThisWorkbook.Sheets("Total Value").Cells(TargetRow, ColumnIndex).Value = ItemExtendedPrice
+                        ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, ColumnIndex).Value = ItemQty
+                        ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, ColumnIndex).Value = TransCount
+            End If
+       End If
+                    Loop
+                    ' Drop values into working sheets
+                        
+                    Close #1
+                    
+                    Case "MI0014"   ' Weekly Buying Groug+Sub Group
+                    
+                    ' Read title row (discarded)
+                    Input #1, CatNum, CatDesc, YearNum, WeekNum, TransCount, ItemExtendedPrice, ItemQty ', ATV
+                    
+                    '
+                    
+                   Do While Not EOF(1)    ' Check for end of file.
+   
+                        ' Read data row
+                        Input #1, CatNum, CatDesc, YearNum, WeekNum, TransCount, ItemExtendedPrice, ItemQty ', ATV
+                            
+       If ((YearNum = LastLine_Year) And (WeekNum = LastLine_Week)) Then
+                        ' Drop values into working sheets
+        ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & YearNum & WeekArray(WeekNum)
+        ColumnIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+        
+            If ColumnIndex <> 0 Then
+                        
+                         TargetRow = Application.WorksheetFunction.Match(CatNum, ThisWorkbook.Sheets("Template 1").Range("e80:e1000"), 0) + 79
+                        ' Drop values into working sheets
+                            
+                        ThisWorkbook.Sheets("Total Value").Cells(TargetRow, ColumnIndex).Value = ItemExtendedPrice
+                        ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, ColumnIndex).Value = ItemQty
+                        ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, ColumnIndex).Value = TransCount
+            End If
+        End If
+                    Loop
+                    ' Drop values into working sheets
+                        
+                    Close #1
+             
+             End Select
+     
+     Else ' normall full read
+        Open fs.FoundFiles(i) For Input As #1
+          LastSlash = Len(fs.FoundFiles(i)) - InStrRev(fs.FoundFiles(i), "\")
+          FoundCSV = Right(fs.FoundFiles(i), LastSlash)
+          '  FoundCSV = Right(fs.FoundFiles(i), 20)
+          FileType = Left(FoundCSV, 6)
+       '
+              Select Case FileType
+                    
+                    Case "MI0011"   ' Weekly Estate
+                    
+         FileYear = Mid(FoundCSV, 8, 4)
+       'FileWeek = Mid(FoundCSV, 15, 2)
+        ' ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & FileYear & FileWeek
+        
+        
+                    ' Read title row (discarded)
+                    Input #1, YearNum, WeekNum, TransCount, SalesValue, SalesQty ', ATV
+                    
+                     Do While Not EOF(1)
+                    
+                  
+   
+                        Input #1, YearNum, WeekNum, TransCount, SalesValue, SalesQty ', ATV
+                            
+       
+        ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & YearNum & WeekArray(WeekNum)
+        ColumnIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+        
+            If ColumnIndex <> 0 Then
+                
+                        ' Drop values into working sheets
+                    ThisWorkbook.Sheets("Total Value").Cells(5, ColumnIndex).Value = SalesValue
+                    ThisWorkbook.Sheets("Total Volume").Cells(5, ColumnIndex).Value = SalesQty
+                    ThisWorkbook.Sheets("Total Transactions").Cells(5, ColumnIndex).Value = TransCount
+                        
+            End If
+                    Loop
+                    Close #1
+           
+                  
+                    Case "MI0012"   ' Weekly Category
+                    
+                    ' Read title row (discarded)
+                    Input #1, CatNum, CatDesc, YearNum, WeekNum, TransCount, ItemExtendedPrice, ItemQty ', ATV
+                    
+                    '
+                    
+                   Do While Not EOF(1)    ' Check for end of file.
+   
+                        ' Read data row
+                        Input #1, CatNum, CatDesc, YearNum, WeekNum, TransCount, ItemExtendedPrice, ItemQty ', ATV
+                            
+                        ' Drop values into working sheets
+        ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & YearNum & WeekArray(WeekNum)
+        ColumnIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+        
+            If ColumnIndex <> 0 Then
+                        
+                        TargetRow = Application.WorksheetFunction.Match(CatDesc, ThisWorkbook.Sheets("Template 1").Range("a10:a19"), 0) + 9
+                        
+                        ' Drop values into working sheets
+                            
+                        ThisWorkbook.Sheets("Total Value").Cells(TargetRow, ColumnIndex).Value = ItemExtendedPrice
+                        ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, ColumnIndex).Value = ItemQty
+                        ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, ColumnIndex).Value = TransCount
+            End If
+                    Loop
+                    ' Drop values into working sheets
+                        
+                    Close #1
+                    
+                    
+                    
+                    Case "MI0013"   ' Weekly Buying Group
+                    
+                    ' Read title row (discarded)
+                    Input #1, CatNum, CatDesc, YearNum, WeekNum, TransCount, ItemExtendedPrice, ItemQty ', ATV
+                    
+                    '
+                    
+                   Do While Not EOF(1)    ' Check for end of file.
+   
+                        ' Read data row
+                        Input #1, CatNum, CatDesc, YearNum, WeekNum, TransCount, ItemExtendedPrice, ItemQty ', ATV
+                            
+                        ' Drop values into working sheets
+        ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & YearNum & WeekArray(WeekNum)
+        ColumnIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+        
+            If ColumnIndex <> 0 Then
+                        
+                         TargetRow = Application.WorksheetFunction.Match(CatDesc, ThisWorkbook.Sheets("Template 1").Range("a20:a79"), 0) + 19
+                       
+                        ' Drop values into working sheets
+                            
+                        ThisWorkbook.Sheets("Total Value").Cells(TargetRow, ColumnIndex).Value = ItemExtendedPrice
+                        ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, ColumnIndex).Value = ItemQty
+                        ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, ColumnIndex).Value = TransCount
+            End If
+                    Loop
+                    ' Drop values into working sheets
+                        
+                    Close #1
+                    
+                    Case "MI0014"   ' Weekly Buying Groug+Sub Group
+                    
+                    ' Read title row (discarded)
+                    Input #1, CatNum, CatDesc, YearNum, WeekNum, TransCount, ItemExtendedPrice, ItemQty ', ATV
+                    
+                    '
+                    
+                   Do While Not EOF(1)    ' Check for end of file.
+   
+                        ' Read data row
+                        Input #1, CatNum, CatDesc, YearNum, WeekNum, TransCount, ItemExtendedPrice, ItemQty ', ATV
+                            
+                        ' Drop values into working sheets
+        ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & YearNum & WeekArray(WeekNum)
+        ColumnIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+        
+            If ColumnIndex <> 0 Then
+                        
+                         TargetRow = Application.WorksheetFunction.Match(CatNum, ThisWorkbook.Sheets("Template 1").Range("e80:e1000"), 0) + 79
+                        ' Drop values into working sheets
+                            
+                        ThisWorkbook.Sheets("Total Value").Cells(TargetRow, ColumnIndex).Value = ItemExtendedPrice
+                        ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, ColumnIndex).Value = ItemQty
+                        ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, ColumnIndex).Value = TransCount
+            End If
+                    Loop
+                    ' Drop values into working sheets
+                        
+                    Close #1
+             
+             End Select
+      End If
+
+    Next i
+
+End If
+
+End Sub
+Sub Depreciated()
+Select Case FileType
+            
+                Case "MI0001"   ' SAPCO Estate
+                
+                    Open fs.FoundFiles(i) For Input As #1
+                    
+                    ' Read title row (discarded)
+                    Input #1, SalesQty, SalesValue, WeekNum, TransCount, AIP, IPT, ATV
+                    
+                    ' Read actual data (only single line)
+                    Input #1, SalesQty, SalesValue, WeekNum, TransCount, AIP, IPT, ATV
+                    
+                    ' Drop values into working sheets
+                            
+                    ThisWorkbook.Sheets("SAPCO Value").Cells(5, ColumnIndex).Value = SalesValue
+                    ThisWorkbook.Sheets("SAPCO Volume").Cells(5, ColumnIndex).Value = SalesQty
+                    ThisWorkbook.Sheets("SAPCO Transactions").Cells(5, ColumnIndex).Value = TransCount
+                        
+                    Close #1
+                    
+                Case "MI0002"   ' SAPCO Category
+                    
+                    Open fs.FoundFiles(i) For Input As #1
+                
+                    ' Read title row (discarded)
+                    Input #1, CatNum, CatDesc, WeekNum, TransCount, ItemQty, ItemExtendedPrice, AIP, IPT, ATV, ItemQtyIncluded, ItemExtendedPriceIncluded, AIPIncluded, IPTIncluded, ATVIncluded, AVGCatIncluded
+                    
+                    Do While Not EOF(1)    ' Check for end of file.
+   
+                        ' Read data row
+                        Input #1, CatNum, CatDesc, WeekNum, TransCount, ItemQty, ItemExtendedPrice, AIP, IPT, ATV, ItemQtyIncluded, ItemExtendedPriceIncluded, AIPIncluded, IPTIncluded, ATVIncluded, AVGCatIncluded
+                                
+                        ' Drop values into working sheets
+                        
+                        TargetRow = Application.WorksheetFunction.Match(CatDesc, ThisWorkbook.Sheets("Template 1").Range("a10:a19"), 0) + 9
+                        
+                        ' Drop values into working sheets
+                            
+                        ThisWorkbook.Sheets("SAPCO Value").Cells(TargetRow, ColumnIndex).Value = ItemExtendedPrice
+                        ThisWorkbook.Sheets("SAPCO Volume").Cells(TargetRow, ColumnIndex).Value = ItemQty
+                        ThisWorkbook.Sheets("SAPCO Transactions").Cells(TargetRow, ColumnIndex).Value = TransCount
+                        
+                    Loop
+                    
+                    Close #1
+                    
+                Case "MI0003"   ' SAPCO BG
+                    
+                    Open fs.FoundFiles(i) For Input As #1
+                
+                    ' Read title row (discarded)
+                    Input #1, CatNum, CatDesc, WeekNum, TransCount, ItemQty, ItemExtendedPrice, AIP, IPT, ATV, ItemQtyIncluded, ItemExtendedPriceIncluded, AIPIncluded, IPTIncluded, ATVIncluded, AVGCatIncluded
+                    
+                    Do While Not EOF(1)    ' Check for end of file.
+   
+                        ' Read data row
+                        Input #1, CatNum, CatDesc, WeekNum, TransCount, ItemQty, ItemExtendedPrice, AIP, IPT, ATV, ItemQtyIncluded, ItemExtendedPriceIncluded, AIPIncluded, IPTIncluded, ATVIncluded, AVGCatIncluded
+                                
+                        ' Drop values into working sheets
+                        
+                        TargetRow = Application.WorksheetFunction.Match(CatDesc, ThisWorkbook.Sheets("Template 1").Range("a20:a79"), 0) + 19
+                        
+                        ' Drop values into working sheets
+                            
+                        ThisWorkbook.Sheets("SAPCO Value").Cells(TargetRow, ColumnIndex).Value = ItemExtendedPrice
+                        ThisWorkbook.Sheets("SAPCO Volume").Cells(TargetRow, ColumnIndex).Value = ItemQty
+                        ThisWorkbook.Sheets("SAPCO Transactions").Cells(TargetRow, ColumnIndex).Value = TransCount
+                        
+                    Loop
+                    
+                    Close #1
+                    
+                Case "MI0004"   ' SAPCO SG
+                    
+                    Open fs.FoundFiles(i) For Input As #1
+                
+                    ' Read title row (discarded)
+                    Input #1, CatNum, CatDesc, WeekNum, TransCount, ItemQty, ItemExtendedPrice, AIP, IPT, ATV, ItemQtyIncluded, ItemExtendedPriceIncluded, AIPIncluded, IPTIncluded, ATVIncluded, AVGCatIncluded
+                    
+                    Do While Not EOF(1)    ' Check for end of file.
+   
+                        ' Read data row
+                        Input #1, CatNum, CatDesc, WeekNum, TransCount, ItemQty, ItemExtendedPrice, AIP, IPT, ATV, ItemQtyIncluded, ItemExtendedPriceIncluded, AIPIncluded, IPTIncluded, ATVIncluded, AVGCatIncluded
+                                
+                        ' Drop values into working sheets
+                        
+                        TargetRow = Application.WorksheetFunction.Match(CatNum, ThisWorkbook.Sheets("Template 1").Range("e80:e1000"), 0) + 79
+                        
+                        ' Drop values into working sheets
+                            
+                        ThisWorkbook.Sheets("SAPCO Value").Cells(TargetRow, ColumnIndex).Value = ItemExtendedPrice
+                        ThisWorkbook.Sheets("SAPCO Volume").Cells(TargetRow, ColumnIndex).Value = ItemQty
+                        ThisWorkbook.Sheets("SAPCO Transactions").Cells(TargetRow, ColumnIndex).Value = TransCount
+                        
+                    Loop
+                    
+                    Close #1
+                    
+                Case "MI0005"   ' Till Estate
+                
+                    Open fs.FoundFiles(i) For Input As #1
+                    
+                    ' Read title row (discarded)
+                    Input #1, SalesQty, SalesValue, WeekNum, TransCount, AIP, IPT, ATV
+                    
+                    ' Read actual data (only single line)
+                    Input #1, SalesQty, SalesValue, WeekNum, TransCount, AIP, IPT, ATV
+                    
+                    ' Drop values into working sheets
+                            
+                    ThisWorkbook.Sheets("Till Value").Cells(5, ColumnIndex).Value = SalesValue
+                    ThisWorkbook.Sheets("Till Volume").Cells(5, ColumnIndex).Value = SalesQty
+                    ThisWorkbook.Sheets("Till Transactions").Cells(5, ColumnIndex).Value = TransCount
+                        
+                    Close #1
+                    
+                Case "MI0006"   ' Till Category
+                    
+                    Open fs.FoundFiles(i) For Input As #1
+                
+                    ' Read title row (discarded)
+                    Input #1, CatNum, CatDesc, WeekNum, TransCount, ItemQty, ItemExtendedPrice, AIP, IPT, ATV, ItemQtyIncluded, ItemExtendedPriceIncluded, AIPIncluded, IPTIncluded, ATVIncluded, AVGCatIncluded
+                    
+                    Do While Not EOF(1)    ' Check for end of file.
+   
+                        ' Read data row
+                        Input #1, CatNum, CatDesc, WeekNum, TransCount, ItemQty, ItemExtendedPrice, AIP, IPT, ATV, ItemQtyIncluded, ItemExtendedPriceIncluded, AIPIncluded, IPTIncluded, ATVIncluded, AVGCatIncluded
+                                
+                        ' Drop values into working sheets
+                        
+                        TargetRow = Application.WorksheetFunction.Match(CatDesc, ThisWorkbook.Sheets("Template 1").Range("a10:a19"), 0) + 9
+                        
+                        ' Drop values into working sheets
+                            
+                        ThisWorkbook.Sheets("Till Value").Cells(TargetRow, ColumnIndex).Value = ItemExtendedPrice
+                        ThisWorkbook.Sheets("Till Volume").Cells(TargetRow, ColumnIndex).Value = ItemQty
+                        ThisWorkbook.Sheets("Till Transactions").Cells(TargetRow, ColumnIndex).Value = TransCount
+                        
+                    Loop
+                    
+                    Close #1
+                    
+                Case "MI0007"   ' Till BG
+                    
+                    Open fs.FoundFiles(i) For Input As #1
+                
+                    ' Read title row (discarded)
+                    Input #1, CatNum, CatDesc, WeekNum, TransCount, ItemQty, ItemExtendedPrice, AIP, IPT, ATV, ItemQtyIncluded, ItemExtendedPriceIncluded, AIPIncluded, IPTIncluded, ATVIncluded, AVGCatIncluded
+                    
+                    Do While Not EOF(1)    ' Check for end of file.
+   
+                        ' Read data row
+                        Input #1, CatNum, CatDesc, WeekNum, TransCount, ItemQty, ItemExtendedPrice, AIP, IPT, ATV, ItemQtyIncluded, ItemExtendedPriceIncluded, AIPIncluded, IPTIncluded, ATVIncluded, AVGCatIncluded
+                                
+                        ' Drop values into working sheets
+                        
+                        TargetRow = Application.WorksheetFunction.Match(CatDesc, ThisWorkbook.Sheets("Template 1").Range("a20:a79"), 0) + 19
+                        
+                        ' Drop values into working sheets
+                            
+                        ThisWorkbook.Sheets("Till Value").Cells(TargetRow, ColumnIndex).Value = ItemExtendedPrice
+                        ThisWorkbook.Sheets("Till Volume").Cells(TargetRow, ColumnIndex).Value = ItemQty
+                        ThisWorkbook.Sheets("till Transactions").Cells(TargetRow, ColumnIndex).Value = TransCount
+                        
+                    Loop
+                    
+                    Close #1
+                    
+                Case "MI0008"   ' Till SG
+                    
+                    Open fs.FoundFiles(i) For Input As #1
+                
+                    ' Read title row (discarded)
+                    Input #1, CatNum, CatDesc, WeekNum, TransCount, ItemQty, ItemExtendedPrice, AIP, IPT, ATV, ItemQtyIncluded, ItemExtendedPriceIncluded, AIPIncluded, IPTIncluded, ATVIncluded, AVGCatIncluded
+                    
+                    Do While Not EOF(1)    ' Check for end of file.
+   
+                        ' Read data row
+                        Input #1, CatNum, CatDesc, WeekNum, TransCount, ItemQty, ItemExtendedPrice, AIP, IPT, ATV, ItemQtyIncluded, ItemExtendedPriceIncluded, AIPIncluded, IPTIncluded, ATVIncluded, AVGCatIncluded
+                                
+                        ' Drop values into working sheets
+                        
+                        TargetRow = Application.WorksheetFunction.Match(CatNum, ThisWorkbook.Sheets("Template 1").Range("e80:e1000"), 0) + 79
+                        
+                        ' Drop values into working sheets
+                            
+                        ThisWorkbook.Sheets("Till Value").Cells(TargetRow, ColumnIndex).Value = ItemExtendedPrice
+                        ThisWorkbook.Sheets("Till Volume").Cells(TargetRow, ColumnIndex).Value = ItemQty
+                        ThisWorkbook.Sheets("Till Transactions").Cells(TargetRow, ColumnIndex).Value = TransCount
+                        
+                        ThisWorkbook.Sheets("Till Value").Cells(TargetRow, 3).Value = CatNum
+                        
+                    Loop
+                    
+                    Close #1
+                            
+            End Select
+            
+End Sub
+
+Sub PopulateCalcSheets()
+
+' Populates the calculated sheets
+' Basically the same operation at each level of hierarchy - cleaner doing it this way
+
+Dim StartColumn As Integer
+Dim EndColumn As Integer
+Dim i As Integer
+Dim IncreFlag As Boolean
+
+If ThisWorkbook.Sheets("Front").Cells(3, 8).Value = True Then ' Incremental read flag is true
+    IncreFlag = True
+
+Else
+    IncreFlag = False
+End If
+    StartColumn = 10 ' data block starts from col10
+    EndColumn = ThisWorkbook.Sheets("Total Transactions").Cells(5, StartColumn).CurrentRegion.Columns.Count + (StartColumn - 1) 'no long Till trans
+
+' Estate
+Call PopulateCalcLine(5, StartColumn, EndColumn, IncreFlag)
+
+' Categories
+
+RowCount = ThisWorkbook.Sheets("Template 1").Cells(10, 1).CurrentRegion.Rows.Count
+
+For i = 10 To RowCount + 9
+
+    Call PopulateCalcLine(i, StartColumn, EndColumn, IncreFlag)
+
+Next i
+
+' BGs
+
+RowCount = ThisWorkbook.Sheets("Template 1").Cells(20, 1).CurrentRegion.Rows.Count
+
+For i = 20 To RowCount + 19
+
+    Call PopulateCalcLine(i, StartColumn, EndColumn, IncreFlag)
+
+Next i
+
+' SGs
+
+RowCount = ThisWorkbook.Sheets("Template 1").Cells(80, 1).CurrentRegion.Rows.Count
+
+For i = 80 To RowCount + 79
+
+    Call PopulateCalcLine(i, StartColumn, EndColumn, IncreFlag)
+
+Next i
+
+End Sub
+
+Sub PopulateCalcLine(TargetRow As Integer, StartCol As Integer, EndCol As Integer, IncreFlag As Boolean)
+
+' Populates a single row of calculations
+If IncreFlag = True Then
+'only calculate last column (this week), previous value must exist beforehand
+    If EndCol - StartCol > 3 Then
+    
+        ThisWorkbook.Sheets("L4W Value").Cells(TargetRow, EndCol).Value = ( _
+            ThisWorkbook.Sheets("Total Value").Cells(TargetRow, EndCol - 1).Value + _
+            ThisWorkbook.Sheets("Total Value").Cells(TargetRow, EndCol - 2).Value + _
+            ThisWorkbook.Sheets("Total Value").Cells(TargetRow, EndCol - 3).Value + _
+            ThisWorkbook.Sheets("Total Value").Cells(TargetRow, EndCol - 4).Value) / 4
+            
+        ThisWorkbook.Sheets("L4W Volume").Cells(TargetRow, EndCol).Value = ( _
+            ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, EndCol - 1).Value + _
+            ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, EndCol - 2).Value + _
+            ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, EndCol - 3).Value + _
+            ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, EndCol - 4).Value) / 4
+            
+        ThisWorkbook.Sheets("L4W Transactions").Cells(TargetRow, EndCol).Value = ( _
+            ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, EndCol - 1).Value + _
+            ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, EndCol - 2).Value + _
+            ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, EndCol - 3).Value + _
+            ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, EndCol - 4).Value) / 4
+        
+    Else
+    
+        ThisWorkbook.Sheets("L4W Value").Cells(TargetRow, EndCol).Value = _
+            ThisWorkbook.Sheets("Total Value").Cells(TargetRow, EndCol).Value
+            
+        ThisWorkbook.Sheets("L4W Volume").Cells(TargetRow, EndCol).Value = _
+            ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, EndCol).Value
+    
+        ThisWorkbook.Sheets("L4W Transactions").Cells(TargetRow, EndCol).Value = _
+            ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, EndCol).Value
+    
+    End If
+    
+    ' YTD. As we are missing the first few months data for 2007, we only calc this for 2008
+    ' onwards. Three scenarios - 2007, first week of a year, subsequent weeks of a year.
+    ' As with L4W, the figures are averaged to a single weeks worth
+    
+    ' Work out week and year
+    
+    ThisWorkbook.Sheets("Calendar").Cells(5, 9).Value = EndCol
+    CurrentYear = ThisWorkbook.Sheets("Calendar").Cells(6, 9).Value
+    CurrentWeek = ThisWorkbook.Sheets("Calendar").Cells(7, 9).Value
+    
+    If CurrentYear = 2007 Then
+    
+        ' Do nothing
+        
+    ElseIf CurrentWeek = 1 Then
+    
+        ' First week of new year
+        
+        ThisWorkbook.Sheets("YTD Value").Cells(TargetRow, EndCol).Value = _
+            ThisWorkbook.Sheets("Total Value").Cells(TargetRow, EndCol).Value
+            
+        ThisWorkbook.Sheets("YTD Volume").Cells(TargetRow, EndCol).Value = _
+            ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, EndCol).Value
+            
+        ThisWorkbook.Sheets("YTD Transactions").Cells(TargetRow, EndCol).Value = _
+            ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, EndCol).Value
+        
+    Else
+    
+        ' Subsequent weeks of non-2007 year - take the prev week, multiply up, add the current
+        ' week and then re-average
+        
+        ThisWorkbook.Sheets("YTD Value").Cells(TargetRow, EndCol).Value = _
+            ((ThisWorkbook.Sheets("YTD Value").Cells(TargetRow, EndCol - 1).Value * (CurrentWeek - 1)) _
+            + ThisWorkbook.Sheets("Total Value").Cells(TargetRow, EndCol).Value) / CurrentWeek
+            
+        ThisWorkbook.Sheets("YTD Volume").Cells(TargetRow, EndCol).Value = _
+            ((ThisWorkbook.Sheets("YTD Volume").Cells(TargetRow, EndCol - 1).Value * (CurrentWeek - 1)) _
+            + ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, EndCol).Value) / CurrentWeek
+            
+        ThisWorkbook.Sheets("YTD Transactions").Cells(TargetRow, EndCol).Value = _
+            ((ThisWorkbook.Sheets("YTD Transactions").Cells(TargetRow, EndCol - 1).Value * (CurrentWeek - 1)) _
+            + ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, EndCol).Value) / CurrentWeek
+            
+    End If
+    
+
+Else
+For i = StartCol To EndCol
+
+    ' Totals (SAPCO + Till)
+
+'    ThisWorkbook.Sheets("Total Value").Cells(TargetRow, i).Value = _
+ '       ThisWorkbook.Sheets("SAPCO Value").Cells(TargetRow, i).Value + _
+  '      ThisWorkbook.Sheets("Till Value").Cells(TargetRow, i).Value
+    
+   ' ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, i).Value = _
+    '    ThisWorkbook.Sheets("SAPCO Volume").Cells(TargetRow, i).Value + _
+     '   ThisWorkbook.Sheets("Till Volume").Cells(TargetRow, i).Value
+    
+    'ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, i).Value = _
+     '   ThisWorkbook.Sheets("SAPCO Transactions").Cells(TargetRow, i).Value + _
+      '  ThisWorkbook.Sheets("Till Transactions").Cells(TargetRow, i).Value
+        
+    ' Last 4 weeks (note - this is the four weeks preceding the current week and values
+    ' are averaged down to a week's worth). For the first 4 weeks, we just drop in the figures
+    ' for each week as there is no previous 4 weeks
+    
+    If i - StartCol > 3 Then
+    
+        ThisWorkbook.Sheets("L4W Value").Cells(TargetRow, i).Value = ( _
+            ThisWorkbook.Sheets("Total Value").Cells(TargetRow, i - 1).Value + _
+            ThisWorkbook.Sheets("Total Value").Cells(TargetRow, i - 2).Value + _
+            ThisWorkbook.Sheets("Total Value").Cells(TargetRow, i - 3).Value + _
+            ThisWorkbook.Sheets("Total Value").Cells(TargetRow, i - 4).Value) / 4
+            
+        ThisWorkbook.Sheets("L4W Volume").Cells(TargetRow, i).Value = ( _
+            ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, i - 1).Value + _
+            ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, i - 2).Value + _
+            ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, i - 3).Value + _
+            ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, i - 4).Value) / 4
+            
+        ThisWorkbook.Sheets("L4W Transactions").Cells(TargetRow, i).Value = ( _
+            ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, i - 1).Value + _
+            ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, i - 2).Value + _
+            ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, i - 3).Value + _
+            ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, i - 4).Value) / 4
+        
+    Else
+    
+        ThisWorkbook.Sheets("L4W Value").Cells(TargetRow, i).Value = _
+            ThisWorkbook.Sheets("Total Value").Cells(TargetRow, i).Value
+            
+        ThisWorkbook.Sheets("L4W Volume").Cells(TargetRow, i).Value = _
+            ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, i).Value
+    
+        ThisWorkbook.Sheets("L4W Transactions").Cells(TargetRow, i).Value = _
+            ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, i).Value
+    
+    End If
+    
+    ' YTD. As we are missing the first few months data for 2007, we only calc this for 2008
+    ' onwards. Three scenarios - 2007, first week of a year, subsequent weeks of a year.
+    ' As with L4W, the figures are averaged to a single weeks worth
+    
+    ' Work out week and year
+    
+    ThisWorkbook.Sheets("Calendar").Cells(5, 9).Value = i
+    CurrentYear = ThisWorkbook.Sheets("Calendar").Cells(6, 9).Value
+    CurrentWeek = ThisWorkbook.Sheets("Calendar").Cells(7, 9).Value
+    
+    If CurrentYear = 2007 Then
+    
+        ' Do nothing
+        
+    ElseIf CurrentWeek = 1 Then
+    
+        ' First week of new year
+        
+        ThisWorkbook.Sheets("YTD Value").Cells(TargetRow, i).Value = _
+            ThisWorkbook.Sheets("Total Value").Cells(TargetRow, i).Value
+            
+        ThisWorkbook.Sheets("YTD Volume").Cells(TargetRow, i).Value = _
+            ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, i).Value
+            
+        ThisWorkbook.Sheets("YTD Transactions").Cells(TargetRow, i).Value = _
+            ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, i).Value
+        
+    Else
+    
+        ' Subsequent weeks of non-2007 year - take the prev week, multiply up, add the current
+        ' week and then re-average
+        
+        ThisWorkbook.Sheets("YTD Value").Cells(TargetRow, i).Value = _
+            ((ThisWorkbook.Sheets("YTD Value").Cells(TargetRow, i - 1).Value * (CurrentWeek - 1)) _
+            + ThisWorkbook.Sheets("Total Value").Cells(TargetRow, i).Value) / CurrentWeek
+            
+        ThisWorkbook.Sheets("YTD Volume").Cells(TargetRow, i).Value = _
+            ((ThisWorkbook.Sheets("YTD Volume").Cells(TargetRow, i - 1).Value * (CurrentWeek - 1)) _
+            + ThisWorkbook.Sheets("Total Volume").Cells(TargetRow, i).Value) / CurrentWeek
+            
+        ThisWorkbook.Sheets("YTD Transactions").Cells(TargetRow, i).Value = _
+            ((ThisWorkbook.Sheets("YTD Transactions").Cells(TargetRow, i - 1).Value * (CurrentWeek - 1)) _
+            + ThisWorkbook.Sheets("Total Transactions").Cells(TargetRow, i).Value) / CurrentWeek
+            
+    End If
+    
+Next i
+End If
+End Sub
+
+Sub CheckCSDBGTRTemplate()
+
+' Checks the CSDBGTR template and makes sure it has exactly the correct BG lines
+
+With ThisWorkbook.Sheets("Template 1")
+
+    BGCount = .Cells(20, 1).CurrentRegion.Rows.Count
+    CatCount = .Cells(10, 1).CurrentRegion.Rows.Count
+    EstateCount = 1
+    
+    TotalCount = EstateCount + CatCount + BGCount
+    
+    CSDBGTRCount = ThisWorkbook.Sheets("CSDBGTR Template").Cells(4, 34).Value
+    
+    If TotalCount <> CSDBGTRCount Then
+    
+        MsgBox ("Sorry - mismatch in CSDBGTR template. Please correct and rerun")
+        
+        End
+    
+    End If
+    
+End With
+
+End Sub
+
+Sub PopulateCSDSGTR()
+
+' Copies the CSDBGTR template sheet and adds the SG info
+
+' Copy the template
+Application.DisplayAlerts = False
+
+ThisWorkbook.Sheets("CSDSGTR Template").Delete
+
+ThisWorkbook.Sheets("CSDBGTR Template").Copy after:=ThisWorkbook.Sheets(1)
+        
+ThisWorkbook.Sheets(2).Name = "CSDSGTR Template"
+        
+' Get rid of the junk at the bottom - warning - hard coded
+
+ThisWorkbook.Sheets("CSDSGTR Template").Rows("55:60").Delete
+
+' Now add the formulae, the SGs and their row number
+
+SGCount = ThisWorkbook.Sheets("Template 1").Cells(80, 1).CurrentRegion.Rows.Count
+
+With ThisWorkbook.Sheets("CSDSGTR Template")
+
+    For i = 80 To 79 + SGCount
+    
+        ' Copy and paste formula row from above
+        .Range("C53:BC53").Copy
+        '************IF NEW COLUMNS ADDED THIS column MUST BE UPDATED********
+        .Cells(i - 20, 3).PasteSpecial
+    
+        ' BG
+        .Cells(i - 20, 1).Value = ThisWorkbook.Sheets("Template 1").Cells(i, 3).Value
+        
+        ' SG
+        .Cells(i - 20, 2).Value = ThisWorkbook.Sheets("Template 1").Cells(i, 1).Value
+        
+        ' Row number
+        .Cells(i - 20, 34).Value = i
+    
+    Next i
+
+End With
+
+Application.DisplayAlerts = True
+
+End Sub
+
+Sub SaveCSDBGTR()
+
+' Copy the CSDBGTR template, convert formulae to values and save it
+
+' Create and save new workbook
+
+Workbooks.Add
+
+WeekNum = ThisWorkbook.Sheets("Front").Cells(4, 4).Value
+YearNum = ThisWorkbook.Sheets("Front").Cells(6, 4).Value
+
+TargetFolder = ThisWorkbook.Path
+TargetFile = "CSD BG Transaction Report (Wk " & WeekNum & " " & YearNum & ").xls"
+
+Application.DisplayAlerts = False
+
+ActiveWorkbook.SaveAs TargetFolder & "/" & TargetFile
+
+' Copy the template sheets across
+
+ThisWorkbook.Sheets("CSDBGTR Template").Cells.Copy
+
+With Workbooks(TargetFile).Sheets(1)
+
+    .Cells.Select
+    
+    Selection.PasteSpecial Paste:=xlPasteValues
+    Selection.PasteSpecial Paste:=xlPasteFormats
+
+End With
+
+ThisWorkbook.Sheets("CSDSGTR Template").Cells.Copy
+
+With Workbooks(TargetFile).Sheets(2)
+    
+    .Select
+    .Cells.Select
+    
+    Selection.PasteSpecial Paste:=xlPasteValues
+    Selection.PasteSpecial Paste:=xlPasteFormats
+
+End With
+
+
+' Spot of tidying up
+
+Application.DisplayAlerts = False
+
+With Workbooks(TargetFile)
+
+    .Sheets(3).Delete
+
+    .Sheets(1).Name = "CSDBGTR"
+    .Sheets(2).Name = "CSDSGTR"
+    'These delete Lastweek, last year YTD etc and only leave WOW YOY in result file
+    .Sheets("CSDBGTR").Columns("I:AI").Delete
+    .Sheets("CSDSGTR").Columns("I:AI").Delete
+
+End With
+
+Application.DisplayAlerts = True
+
+' Set it up for printing
+
+' Set up a sensible default printer
+
+
+' Save it
+
+Workbooks(TargetFile).Save
+
+Application.DisplayAlerts = True
+
+End Sub
+
+Sub AddBGSheets()
+
+' Adds one sheet per BG to the TargetFile file and populates with the SG information
+
+Application.DisplayAlerts = False
+
+WeekNum = ThisWorkbook.Sheets("Front").Cells(4, 4).Value
+YearNum = ThisWorkbook.Sheets("Front").Cells(6, 4).Value
+
+TargetFile = "CSD BG Transaction Report (Wk " & WeekNum & " " & YearNum & ").xls"
+
+BGCount = ThisWorkbook.Sheets("Template 1").Cells(20, 1).CurrentRegion.Rows.Count
+
+' Step through the BGs
+
+For CurrentBG = 20 To 19 + BGCount
+
+    ' Copy the CSDSGTR sheet and rename
+    
+    With Workbooks(TargetFile)
+    
+        .Sheets("CSDSGTR").Copy before:=.Sheets(1)
+        
+        BGShortName = ThisWorkbook.Sheets("Template 1").Cells(CurrentBG, 5).Value
+        BGName = ThisWorkbook.Sheets("Template 1").Cells(CurrentBG, 1).Value
+        CatName = ThisWorkbook.Sheets("Template 1").Cells(CurrentBG, 2).Value
+        
+        .Sheets(1).Name = BGShortName
+        
+    End With
+    
+    ' Now delete all SG rows that don't belong to that BG
+    
+    With Workbooks(TargetFile).Sheets(1)
+    
+        SGRows = .Cells(60, 1).CurrentRegion.Rows.Count
+        
+        For SG = 59 + SGRows To 60 Step -1
+        
+            If .Cells(SG, 1).Value = BGName Then
+            
+                ' Correct BG
+                
+                .Rows(SG).RowHeight = 20
+                .Cells(SG, 1).Value = ""
+                .Cells(SG, 2).VerticalAlignment = xlVAlignCenter
+                
+            Else
+            
+                ' Not the right BG - delete it
+                
+                .Rows(SG).Delete
+            
+            End If
+        
+        Next SG
+        
+        ' Set the title
+        
+        .Cells(1, 1).Value = "Customer Sales Dynamics - " & BGName & " Transaction Report"
+        
+        ' Do the borders
+        
+        SGRange = "B60:X" & 59 + .Cells(60, 2).CurrentRegion.Rows.Count
+        
+        .Range(SGRange).Select
+        
+        On Error Resume Next
+        
+        With Selection.Borders(xlEdgeLeft)
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .ColorIndex = xlAutomatic
+        End With
+        With Selection.Borders(xlEdgeTop)
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .ColorIndex = xlAutomatic
+        End With
+        With Selection.Borders(xlEdgeBottom)
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .ColorIndex = xlAutomatic
+        End With
+        With Selection.Borders(xlEdgeRight)
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .ColorIndex = xlAutomatic
+        End With
+        With Selection.Borders(xlInsideVertical)
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .ColorIndex = xlAutomatic
+        End With
+        With Selection.Borders(xlInsideHorizontal)
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .ColorIndex = xlAutomatic
+        End With
+        
+        On Error GoTo 0
+        
+        ' Add the P+I tag
+        
+        TagRow = 61 + .Cells(60, 2).CurrentRegion.Rows.Count
+        
+        .Cells(TagRow, 24).Value = "Proposition and Insight"
+        .Cells(TagRow, 24).HorizontalAlignment = xlRight
+        .Cells(TagRow, 24).Font.Italic = True
+        
+        .Cells(TagRow + 1, 24).Value = "Putting the Customer at the heart of our decision making"
+        .Cells(TagRow + 1, 24).HorizontalAlignment = xlRight
+        .Cells(TagRow, 24).Font.Italic = True
+        
+        ' Add the BG name to the left of the subgroups
+        
+        .Cells(60, 1).Value = BGName
+        
+        MergeRange = "A60:A" & 59 + .Cells(60, 2).CurrentRegion.Rows.Count
+        
+        With .Range(MergeRange)
+        
+            .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
+            .WrapText = False
+            .Orientation = 90
+            .AddIndent = False
+            .IndentLevel = 0
+            .ShrinkToFit = False
+            .ReadingOrder = xlContext
+            .MergeCells = True
+            .Interior.ColorIndex = 36
+            .Font.Bold = True
+            .Borders.LineStyle = xlContinuous
+            .Borders.Weight = xlThin
+            .Borders.ColorIndex = xlAutomatic
+        
+        End With
+        
+        ' Get rid of the spare lines - warning - hard coded
+        
+        .Rows("55:59").Delete
+
+        ' Now delete the not required Cat sections from the top
+        
+        CatCount = ThisWorkbook.Sheets("Template 1").Cells(10, 1).CurrentRegion.Rows.Count
+        
+        For i = 10 To 9 + CatCount
+        
+            StepCat = ThisWorkbook.Sheets("Template 1").Cells(i, 1).Value
+        
+            If StepCat <> CatName Then
+            
+                ' Not needed, so get rid of it
+                
+                CatFirstRow = Application.WorksheetFunction.Match(StepCat, .Range("a:a"), 0)
+                CatRows = .Cells(CatFirstRow, 2).CurrentRegion.Rows.Count
+                RowRange = CatFirstRow & ":" & CatFirstRow + CatRows
+                
+                .Rows(RowRange).Delete
+                
+            Else
+            
+                ' This is the parent Cat, so leave alone, but bold the appropriate BG
+                
+                For j = CatFirstRow To CatFirstRow - 1 + CatRows
+                
+                    If UCase(.Cells(j, 2).Value) = UCase(BGName) Then .Rows(j).Font.Bold = True
+                
+                Next j
+            
+            End If
+        
+        Next i
+        
+    End With
+            
+Next CurrentBG
+
+' Move the BG one to the front and delete the SG template
+
+With Workbooks(TargetFile)
+
+    .Sheets("CSDSGTR").Delete
+    .Sheets("CSDBGTR").Move before:=.Worksheets(1)
+    .Sheets("CSDBGTR").Name = "Category View"
+
+End With
+
+' Save and close
+
+Workbooks(TargetFile).Save
+
+Workbooks(TargetFile).Close
+
+Application.DisplayAlerts = True
+
+End Sub
+
+Sub SaveSG()
+
+'need to clear data
+SGCount = ThisWorkbook.Sheets("Template 1").Cells(80, 1).CurrentRegion.Rows.Count
+
+        WeekNum = ThisWorkbook.Sheets("Front").Cells(4, 4).Value
+        YearNum = ThisWorkbook.Sheets("Front").Cells(6, 4).Value
+        ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & YearNum & WeekNum
+        ThisWeekIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+        Y_P_Col = Application.WorksheetFunction.Match(ThisWeekIndex, ThisWorkbook.Sheets("Calendar").Range("b:b"), 0)
+        Y_p_value = ThisWorkbook.Sheets("Calendar").Cells(Y_P_Col, 6)
+        Y_P_12 = Y_p_value ' preserve for charts in loop 2
+        'One row above in calendar sheet is previous period, so -1
+        Prev_YP_IDX = ThisWorkbook.Sheets("Calendar").Cells(Application.WorksheetFunction.Match(Y_p_value, ThisWorkbook.Sheets("Calendar").Range("m:m"), 0) - 1, 14).Value
+        P_Col = Prev_YP_IDX
+        
+      '  MsgBox (P_Col & Y_p_value)
+            'Prev_YP = "" & (Y_P_value - 1) ' Calculating previous Period
+            'MsgBox ("wrong if current is P1")
+            'P_Col = Application.WorksheetFunction.Match(Prev_YP, ThisWorkbook.Sheets("Period Value").Range("A2:IV2"), 0)
+       
+       ThisWorkbook.Sheets("Range Change Template").Cells(7, 3).Value = "YearPeriod " & ThisWorkbook.Sheets("Period Value").Cells(2, P_Col)
+       
+        LYNum = YearNum - 1
+        ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & LYNum & WeekNum
+        LastWeekIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+        Y_P_Col = Application.WorksheetFunction.Match(LastWeekIndex, ThisWorkbook.Sheets("Calendar").Range("b:b"), 0)
+        Y_p_value = ThisWorkbook.Sheets("Calendar").Cells(Y_P_Col, 6)
+        Y_P_12_LY = Y_p_value ' preserver last year for loop 2
+        Prev_YP_IDX = ThisWorkbook.Sheets("Calendar").Cells(Application.WorksheetFunction.Match(Y_p_value, ThisWorkbook.Sheets("Calendar").Range("m:m"), 0) - 1, 14).Value
+        Last_P_Col = Prev_YP_IDX
+        
+        
+     
+With ThisWorkbook.Sheets("Range Change Template")
+
+ .ChartObjects(1).Chart.ChartTitle.Characters.Text = "Transactions & ATV Trend " & YearNum & " vs " & LYNum
+ .ChartObjects(2).Chart.ChartTitle.Characters.Text = "AIP & IPT Trend " & YearNum & " vs " & LYNum
+ .Range("c10:m" & 12 + SGCount).Value = ""
+    ' Subgroup
+    For i = 80 To 79 + SGCount
+    
+       ' Hard-code Period indexing in Period sheets, just as Calendar sheet, the rest can be automated easily
+        ' BG
+        .Cells(i - 67, 1).Value = ThisWorkbook.Sheets("Template 1").Cells(i, 3).Value
+        
+        ' SG
+        .Cells(i - 67, 2).Value = ThisWorkbook.Sheets("Template 1").Cells(i, 1).Value
+        ' Period
+       .Cells(i - 67, 3).Value = ThisWorkbook.Sheets("Period Value").Cells(i, P_Col).Value
+       .Cells(i - 67, 4).Value = ThisWorkbook.Sheets("Period Volume").Cells(i, P_Col).Value
+       .Cells(i - 67, 5).Value = ThisWorkbook.Sheets("Period Transactions").Cells(i, P_Col).Value
+       
+       If ((.Cells(i - 67, 4).Value <> 0) And (.Cells(i - 67, 5).Value <> 0)) Then
+       .Cells(i - 67, 6).Formula = "=c" & (i - 67) & "/e" & (i - 67)
+       .Cells(i - 67, 7).Formula = "=d" & (i - 67) & "/e" & (i - 67)
+       .Cells(i - 67, 8).Formula = "=c" & (i - 67) & "/d" & (i - 67)
+       End If
+       
+       ' YOY
+        
+       If ((ThisWorkbook.Sheets("Period Value").Cells(i, Last_P_Col).Value) And (ThisWorkbook.Sheets("Period Transactions").Cells(i, Last_P_Col).Value <> 0) _
+       And (ThisWorkbook.Sheets("Period Value").Cells(i, P_Col).Value) And (ThisWorkbook.Sheets("Period Transactions").Cells(i, P_Col).Value <> 0)) Then
+        
+       
+       .Cells(i - 67, 9).Value = .Cells(i - 67, 3).Value / ThisWorkbook.Sheets("Period Value").Cells(i, Last_P_Col).Value - 1
+       .Cells(i - 67, 10).Value = .Cells(i - 67, 5).Value / ThisWorkbook.Sheets("Period Transactions").Cells(i, Last_P_Col).Value - 1
+       
+       End If
+       'no volume YOY
+       If ((.Cells(i - 67, 10).Value <> 0) And (ThisWorkbook.Sheets("Period Volume").Cells(i, Last_P_Col).Value <> 0)) Then
+       
+       .Cells(i - 67, 11).Value = .Cells(i - 67, 6).Value - ThisWorkbook.Sheets("Period Value").Cells(i, Last_P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(i, Last_P_Col).Value
+       .Cells(i - 67, 12).Value = .Cells(i - 67, 7).Value - ThisWorkbook.Sheets("Period Volume").Cells(i, Last_P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(i, Last_P_Col).Value
+       .Cells(i - 67, 13).Value = .Cells(i - 67, 8).Value - ThisWorkbook.Sheets("Period Value").Cells(i, Last_P_Col).Value / ThisWorkbook.Sheets("Period Volume").Cells(i, Last_P_Col).Value
+       End If
+       
+       
+    Next i
+
+
+    ' Estate (company)
+       .Cells(9, 3).Value = ThisWorkbook.Sheets("Period Value").Cells(5, P_Col).Value
+       .Cells(9, 4).Value = ThisWorkbook.Sheets("Period Volume").Cells(5, P_Col).Value
+       .Cells(9, 5).Value = ThisWorkbook.Sheets("Period Transactions").Cells(5, P_Col).Value
+       
+       .Cells(9, 6).Formula = "=c" & (9) & "/e" & (9)
+       .Cells(9, 7).Formula = "=d" & (9) & "/e" & (9)
+       .Cells(9, 8).Formula = "=c" & (9) & "/d" & (9)
+       
+       ' YOY
+        
+        
+       
+       .Cells(9, 9).Value = .Cells(9, 3).Value / ThisWorkbook.Sheets("Period Value").Cells(5, Last_P_Col).Value - 1
+       .Cells(9, 10).Value = .Cells(9, 5).Value / ThisWorkbook.Sheets("Period Transactions").Cells(5, Last_P_Col).Value - 1
+       
+       'no volume YOY
+       
+       .Cells(9, 11).Value = .Cells(9, 6).Value - ThisWorkbook.Sheets("Period Value").Cells(5, Last_P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(5, Last_P_Col).Value
+       .Cells(9, 12).Value = .Cells(9, 7).Value - ThisWorkbook.Sheets("Period Volume").Cells(5, Last_P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(5, Last_P_Col).Value
+       .Cells(9, 13).Value = .Cells(9, 8).Value - ThisWorkbook.Sheets("Period Value").Cells(5, Last_P_Col).Value / ThisWorkbook.Sheets("Period Volume").Cells(5, Last_P_Col).Value
+        
+        
+    For i = 1 To 12
+         ' calculate data for two charts
+        Prev_YP_IDX = ThisWorkbook.Sheets("Calendar").Cells(Application.WorksheetFunction.Match(Y_P_12, ThisWorkbook.Sheets("Calendar").Range("m:m"), 0) - i, 14).Value
+        P_Col = Prev_YP_IDX
+        Prev_YP_IDX_LY = ThisWorkbook.Sheets("Calendar").Cells(Application.WorksheetFunction.Match(Y_P_12_LY, ThisWorkbook.Sheets("Calendar").Range("m:m"), 0) - i, 14).Value
+        Last_P_Col = Prev_YP_IDX_LY
+        
+        ' if Period is after 2007 Period 7, otherwise do nothing
+        If Last_P_Col > 11 Then
+        
+        
+        'trans variance
+        .Cells(2, 15 - i) = ThisWorkbook.Sheets("Period Transactions").Cells(5, P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(5, Last_P_Col).Value - 1
+        'ATV variance
+        ATV = ThisWorkbook.Sheets("Period Value").Cells(5, P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(5, P_Col).Value
+        ATV_LY = ThisWorkbook.Sheets("Period Value").Cells(5, Last_P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(5, Last_P_Col).Value
+        .Cells(3, 15 - i) = ATV / ATV_LY - 1
+        
+        'AIP
+        AIP = ThisWorkbook.Sheets("Period Value").Cells(5, P_Col).Value / ThisWorkbook.Sheets("Period Volume").Cells(5, P_Col).Value
+        AIP_LY = ThisWorkbook.Sheets("Period Value").Cells(5, Last_P_Col).Value / ThisWorkbook.Sheets("Period Volume").Cells(5, Last_P_Col).Value
+        .Cells(4, 15 - i) = AIP / AIP_LY - 1
+        
+        'IPT
+         IPT = ThisWorkbook.Sheets("Period Volume").Cells(5, P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(5, P_Col).Value
+        IPT_LY = ThisWorkbook.Sheets("Period Volume").Cells(5, Last_P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(5, Last_P_Col).Value
+        .Cells(5, 15 - i) = IPT / IPT_LY - 1
+        
+        .Cells(6, 15 - i) = "P" & ThisWorkbook.Sheets("Calendar").Cells(Application.WorksheetFunction.Match(Y_P_12, ThisWorkbook.Sheets("Calendar").Range("m:m"), 0) - i, 12).Value
+        
+        
+        End If
+    Next i
+
+
+End With
+
+
+
+
+
+
+End Sub
+Sub AddPeriodBGSheets()
+Application.ScreenUpdating = False
+Workbooks.Add
+
+WeekNum = ThisWorkbook.Sheets("Front").Cells(4, 4).Value
+YearNum = ThisWorkbook.Sheets("Front").Cells(6, 4).Value
+
+TargetFolder = ThisWorkbook.Path
+TargetFile = "CSD SG range review Period Report (Wk " & WeekNum & " " & YearNum & ").xls"
+
+Application.DisplayAlerts = False
+
+ActiveWorkbook.SaveAs TargetFolder & "/" & TargetFile
+
+' Copy the template sheets across
+
+ThisWorkbook.Sheets("Range Change Template").Cells.Copy
+
+With Workbooks(TargetFile).Sheets(1)
+
+    .Cells.Select
+    
+    Selection.PasteSpecial Paste:=xlPasteValues
+    Selection.PasteSpecial Paste:=xlPasteFormats
+
+Set chartToCopy = ThisWorkbook.Sheets("Range Change Template").ChartObjects(1)
+     chartToCopy.Copy
+    .Range("A3").Select
+     Workbooks(TargetFile).Sheets(1).Paste
+      ActiveChart.SeriesCollection(1).Values = "=Sheet1!R2C3:R2C14"
+    ActiveChart.SeriesCollection(2).Values = "=Sheet1!R3C3:R3C14"
+     ActiveChart.SeriesCollection(1).XValues = "=Sheet1!R6C3:R6C14"
+     
+Set chartToCopy = ThisWorkbook.Sheets("Range Change Template").ChartObjects(2)
+     chartToCopy.Copy
+    .Range("G3").Select
+     Workbooks(TargetFile).Sheets(1).Paste
+      ActiveChart.SeriesCollection(1).Values = "=Sheet1!R4C3:R4C14"
+    ActiveChart.SeriesCollection(2).Values = "=Sheet1!R5C3:R5C14"
+     ActiveChart.SeriesCollection(1).XValues = "=Sheet1!R6C3:R6C14"
+      
+       
+End With
+
+
+
+
+' Spot of tidying up
+
+Application.DisplayAlerts = False
+
+With Workbooks(TargetFile)
+
+    .Sheets(3).Delete
+    .Sheets(2).Delete
+
+    .Sheets(1).Name = "CSDSGTR"
+    
+    
+End With
+
+WeekNum = ThisWorkbook.Sheets("Front").Cells(4, 4).Value
+YearNum = ThisWorkbook.Sheets("Front").Cells(6, 4).Value
+
+
+BGCount = ThisWorkbook.Sheets("Template 1").Cells(20, 1).CurrentRegion.Rows.Count
+
+' Step through the BGs
+
+For CurrentBG = 20 To 19 + BGCount
+
+    ' Copy the CSDSGTR sheet and rename
+    
+    With Workbooks(TargetFile)
+    
+        .Sheets("CSDSGTR").Copy before:=.Sheets(1)
+        
+        BGShortName = ThisWorkbook.Sheets("Template 1").Cells(CurrentBG, 5).Value
+        BGName = ThisWorkbook.Sheets("Template 1").Cells(CurrentBG, 1).Value
+        CatName = ThisWorkbook.Sheets("Template 1").Cells(CurrentBG, 2).Value
+        
+        .Sheets(1).Name = BGShortName
+        
+    End With
+    
+    ' Now delete all SG rows that don't belong to that BG
+    
+    With Workbooks(TargetFile).Sheets(1)
+    
+        SGRows = .Cells(13, 1).CurrentRegion.Rows.Count
+        
+        For SG = 12 + SGRows To 13 Step -1
+        
+            If .Cells(SG, 1).Value = BGName Then
+            
+                ' Correct BG
+                
+                .Rows(SG).RowHeight = 20
+                .Cells(SG, 1).Value = ""
+                .Cells(SG, 2).VerticalAlignment = xlVAlignCenter
+                
+            Else
+            
+                ' Not the right BG - delete it
+                
+                .Rows(SG).Delete
+            
+            End If
+        
+        Next SG
+        
+        ' Set the title
+        
+        .Cells(1, 1).Value = "Customer Sales Dynamics - " & BGName & " Transaction Report"
+        
+        ' Do the borders
+        SGRange = "B13:M" & 12 + .Cells(13, 2).CurrentRegion.Rows.Count
+        
+        .Range(SGRange).Select
+        
+        On Error Resume Next
+        
+        With Selection.Borders(xlEdgeLeft)
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .ColorIndex = xlAutomatic
+        End With
+        With Selection.Borders(xlEdgeTop)
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .ColorIndex = xlAutomatic
+        End With
+        With Selection.Borders(xlEdgeBottom)
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .ColorIndex = xlAutomatic
+        End With
+        With Selection.Borders(xlEdgeRight)
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .ColorIndex = xlAutomatic
+        End With
+        With Selection.Borders(xlInsideVertical)
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .ColorIndex = xlAutomatic
+        End With
+        With Selection.Borders(xlInsideHorizontal)
+            .LineStyle = xlContinuous
+            .Weight = xlThin
+            .ColorIndex = xlAutomatic
+        End With
+        
+        On Error GoTo 0
+        
+        ' Add the P+I tag
+        
+        TagRow = 14 + .Cells(13, 2).CurrentRegion.Rows.Count
+        
+        .Cells(TagRow, 13).Value = "Proposition and Insight"
+        .Cells(TagRow, 13).HorizontalAlignment = xlRight
+        .Cells(TagRow, 13).Font.Italic = True
+        
+        .Cells(TagRow + 1, 13).Value = "Putting the Customer at the heart of our decision making"
+        .Cells(TagRow + 1, 13).HorizontalAlignment = xlRight
+        .Cells(TagRow, 13).Font.Italic = True
+        
+        ' Add the BG name to the left of the subgroups
+        
+       '.Cells(13, 1).Value = BGName
+        
+        MergeRange = "A13:A" & 12 + .Cells(13, 2).CurrentRegion.Rows.Count
+        
+        With .Range(MergeRange)
+        
+            .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
+            .WrapText = False
+            .Orientation = 90
+            .AddIndent = False
+            .IndentLevel = 0
+            .ShrinkToFit = False
+            .ReadingOrder = xlContext
+            .MergeCells = True
+            .Interior.ColorIndex = 36
+            .Font.Bold = True
+            .Borders.LineStyle = xlContinuous
+            .Borders.Weight = xlThin
+            .Borders.ColorIndex = xlAutomatic
+        
+        End With
+        
+       
+        ' Warning Hard-coded line position
+        ' Now add Category
+        
+        WeekNum = ThisWorkbook.Sheets("Front").Cells(4, 4).Value
+        YearNum = ThisWorkbook.Sheets("Front").Cells(6, 4).Value
+        ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & YearNum & WeekNum
+        ThisWeekIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+        Y_P_Col = Application.WorksheetFunction.Match(ThisWeekIndex, ThisWorkbook.Sheets("Calendar").Range("b:b"), 0)
+        Y_p_value = ThisWorkbook.Sheets("Calendar").Cells(Y_P_Col, 6)
+        'One row above in calendar sheet is previous period, so -1
+        Prev_YP_IDX = ThisWorkbook.Sheets("Calendar").Cells(Application.WorksheetFunction.Match(Y_p_value, ThisWorkbook.Sheets("Calendar").Range("m:m"), 0) - 1, 14).Value
+        P_Col = Prev_YP_IDX
+        
+       
+       
+        LYNum = YearNum - 1
+        ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & LYNum & WeekNum
+        LastWeekIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+        Y_P_Col = Application.WorksheetFunction.Match(LastWeekIndex, ThisWorkbook.Sheets("Calendar").Range("b:b"), 0)
+        Y_p_value = ThisWorkbook.Sheets("Calendar").Cells(Y_P_Col, 6)
+        Prev_YP_IDX = ThisWorkbook.Sheets("Calendar").Cells(Application.WorksheetFunction.Match(Y_p_value, ThisWorkbook.Sheets("Calendar").Range("m:m"), 0) - 1, 14).Value
+        Last_P_Col = Prev_YP_IDX
+        
+        
+     
+    
+       ' Hard-code Period indexing in Period sheets, just as Calendar sheet, the rest can be automated easily
+        
+        
+        .Cells(10, 2).Value = "Category: " & CatName
+        i = Application.WorksheetFunction.Match(CatName, ThisWorkbook.Sheets("Template 1").Range("a:a"), 0)
+        
+        ' Period
+       .Cells(10, 3).Value = ThisWorkbook.Sheets("Period Value").Cells(i, P_Col).Value
+       .Cells(10, 4).Value = ThisWorkbook.Sheets("Period Volume").Cells(i, P_Col).Value
+       .Cells(10, 5).Value = ThisWorkbook.Sheets("Period Transactions").Cells(i, P_Col).Value
+       
+       If ((.Cells(10, 4).Value <> 0) And (.Cells(10, 5).Value <> 0)) Then
+       .Cells(10, 6).Formula = "=c" & (10) & "/e" & (10)
+       .Cells(10, 7).Formula = "=d" & (10) & "/e" & (10)
+       .Cells(10, 8).Formula = "=c" & (10) & "/d" & (10)
+       End If
+       
+       ' YOY
+        
+       If ((ThisWorkbook.Sheets("Period Value").Cells(i, Last_P_Col).Value) And (ThisWorkbook.Sheets("Period Transactions").Cells(i, Last_P_Col).Value <> 0) _
+         And (ThisWorkbook.Sheets("Period Value").Cells(i, P_Col).Value) And (ThisWorkbook.Sheets("Period Transactions").Cells(i, P_Col).Value <> 0)) Then
+        
+        
+       
+       .Cells(10, 9).Value = .Cells(10, 3).Value / ThisWorkbook.Sheets("Period Value").Cells(i, Last_P_Col).Value - 1
+       .Cells(10, 10).Value = .Cells(10, 5).Value / ThisWorkbook.Sheets("Period Transactions").Cells(i, Last_P_Col).Value - 1
+       
+       End If
+       'no volume YOY
+       If ((.Cells(10, 10).Value <> 0) And (ThisWorkbook.Sheets("Period Volume").Cells(i, Last_P_Col).Value <> 0)) Then
+       
+       .Cells(10, 11).Value = .Cells(10, 6).Value - ThisWorkbook.Sheets("Period Value").Cells(i, Last_P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(i, Last_P_Col).Value
+       .Cells(10, 12).Value = .Cells(10, 7).Value - ThisWorkbook.Sheets("Period Volume").Cells(i, Last_P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(i, Last_P_Col).Value
+       .Cells(10, 13).Value = .Cells(10, 8).Value - ThisWorkbook.Sheets("Period Value").Cells(i, Last_P_Col).Value / ThisWorkbook.Sheets("Period Volume").Cells(i, Last_P_Col).Value
+       End If
+    
+    'now add BG
+        .Cells(11, 2).Value = "Buying Group: " & BGName
+        i = Application.WorksheetFunction.Match(BGName, ThisWorkbook.Sheets("Template 1").Range("a:a"), 0)
+       
+        
+        ' Period
+       .Cells(11, 3).Value = ThisWorkbook.Sheets("Period Value").Cells(i, P_Col).Value
+       .Cells(11, 4).Value = ThisWorkbook.Sheets("Period Volume").Cells(i, P_Col).Value
+       .Cells(11, 5).Value = ThisWorkbook.Sheets("Period Transactions").Cells(i, P_Col).Value
+       
+       If ((.Cells(11, 4).Value <> 0) And (.Cells(11, 5).Value <> 0)) Then
+       .Cells(11, 6).Formula = "=c" & (10) & "/e" & (10)
+       .Cells(11, 7).Formula = "=d" & (10) & "/e" & (10)
+       .Cells(11, 8).Formula = "=c" & (10) & "/d" & (10)
+       End If
+       
+       ' YOY
+        
+       If ((ThisWorkbook.Sheets("Period Value").Cells(i, Last_P_Col).Value) And (ThisWorkbook.Sheets("Period Transactions").Cells(i, Last_P_Col).Value <> 0) _
+         And (ThisWorkbook.Sheets("Period Value").Cells(i, P_Col).Value) And (ThisWorkbook.Sheets("Period Transactions").Cells(i, P_Col).Value <> 0)) Then
+        
+        
+       
+       .Cells(11, 9).Value = .Cells(11, 3).Value / ThisWorkbook.Sheets("Period Value").Cells(i, Last_P_Col).Value - 1
+       .Cells(11, 10).Value = .Cells(11, 5).Value / ThisWorkbook.Sheets("Period Transactions").Cells(i, Last_P_Col).Value - 1
+       
+       End If
+       'no volume YOY
+       If ((.Cells(11, 10).Value <> 0) And (ThisWorkbook.Sheets("Period Volume").Cells(i, Last_P_Col).Value <> 0)) Then
+       
+       .Cells(11, 11).Value = .Cells(11, 6).Value - ThisWorkbook.Sheets("Period Value").Cells(i, Last_P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(i, Last_P_Col).Value
+       .Cells(11, 12).Value = .Cells(11, 7).Value - ThisWorkbook.Sheets("Period Volume").Cells(i, Last_P_Col).Value / ThisWorkbook.Sheets("Period Transactions").Cells(i, Last_P_Col).Value
+       .Cells(11, 13).Value = .Cells(11, 8).Value - ThisWorkbook.Sheets("Period Value").Cells(i, Last_P_Col).Value / ThisWorkbook.Sheets("Period Volume").Cells(i, Last_P_Col).Value
+       End If
+    
+    
+        
+    End With
+            
+Next CurrentBG
+
+   Workbooks(TargetFile).Sheets("CSDSGTR").Delete
+
+Workbooks(TargetFile).Save
+
+Workbooks(TargetFile).Close
+
+Application.DisplayAlerts = True
+Application.ScreenUpdating = True
+
+End Sub
+
+Sub ATVCharts()
+
+' Creates the cat level atv charts
+
+
+WeekNum = ThisWorkbook.Sheets("Front").Cells(4, 4).Value
+YearNum = ThisWorkbook.Sheets("Front").Cells(6, 4).Value
+
+
+
+LYWeekNum = ThisWorkbook.Sheets("Front").Cells(8, 4).Value
+LYYearNum = YearNum - 1
+
+ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & YearNum & WeekNum
+ThisWeekIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+'ThisWeekIndex = 96 '
+
+ThisWorkbook.Sheets("Calendar").Cells(2, 9).Value = "'" & LYYearNum & LYWeekNum
+LastWeekIndex = ThisWorkbook.Sheets("Calendar").Cells(3, 9).Value
+'LastWeekIndex = 44 '
+
+With ThisWorkbook.Sheets("CSD ATV Cat Charts")
+
+For i = 1 To 13
+LYIndex = LastWeekIndex - 13 + i
+TYIndex = ThisWeekIndex - 13 + i
+
+' Building
+OldTrans = ThisWorkbook.Sheets("Total Transactions").Cells(10, LYIndex).Value
+NewTrans = ThisWorkbook.Sheets("Total Transactions").Cells(10, TYIndex).Value
+
+OldValue = ThisWorkbook.Sheets("Total Value").Cells(10, LYIndex).Value
+NewValue = ThisWorkbook.Sheets("Total Value").Cells(10, TYIndex).Value
+
+OldATV = OldValue / OldTrans
+NewATV = NewValue / NewTrans
+
+ATVChangePC = (NewATV / OldATV) - 1
+
+WkPeriod = 52 ' NEED AN IF statement for BQ years where got week 53
+
+Weekmod = (WeekNum - 13 + i + WkPeriod) Mod WkPeriod ' + 52 to convert negative to positive value
+
+If Weekmod = 0 Then
+    Weekmod = WkPeriod
+End If
+
+TransChangePC = (NewTrans / OldTrans) - 1
+' 52 is not robust to calendar, see comment below
+.Cells(i + 2, 21).Value = Weekmod ' use calendar sheet if week 53 is to be detected and processed correctly
+.Cells(i + 2, 22).Value = TransChangePC
+.Cells(i + 2, 23).Value = ATVChangePC
+
+' Seasonal
+OldTrans = ThisWorkbook.Sheets("Total Transactions").Cells(11, LYIndex).Value
+NewTrans = ThisWorkbook.Sheets("Total Transactions").Cells(11, TYIndex).Value
+
+OldValue = ThisWorkbook.Sheets("Total Value").Cells(11, LYIndex).Value
+NewValue = ThisWorkbook.Sheets("Total Value").Cells(11, TYIndex).Value
+
+OldATV = OldValue / OldTrans
+NewATV = NewValue / NewTrans
+
+ATVChangePC = (NewATV / OldATV) - 1
+
+TransChangePC = (NewTrans / OldTrans) - 1
+
+.Cells(i + 2, 24).Value = Weekmod
+.Cells(i + 2, 25).Value = TransChangePC
+.Cells(i + 2, 26).Value = ATVChangePC
+
+' Decorative
+OldTrans = ThisWorkbook.Sheets("Total Transactions").Cells(12, LYIndex).Value
+NewTrans = ThisWorkbook.Sheets("Total Transactions").Cells(12, TYIndex).Value
+
+OldValue = ThisWorkbook.Sheets("Total Value").Cells(12, LYIndex).Value
+NewValue = ThisWorkbook.Sheets("Total Value").Cells(12, TYIndex).Value
+
+OldATV = OldValue / OldTrans
+NewATV = NewValue / NewTrans
+
+ATVChangePC = (NewATV / OldATV) - 1
+
+TransChangePC = (NewTrans / OldTrans) - 1
+
+.Cells(i + 2, 27).Value = Weekmod
+.Cells(i + 2, 28).Value = TransChangePC
+.Cells(i + 2, 29).Value = ATVChangePC
+
+' Showroom
+OldTrans = ThisWorkbook.Sheets("Total Transactions").Cells(13, LYIndex).Value
+NewTrans = ThisWorkbook.Sheets("Total Transactions").Cells(13, TYIndex).Value
+
+OldValue = ThisWorkbook.Sheets("Total Value").Cells(13, LYIndex).Value
+NewValue = ThisWorkbook.Sheets("Total Value").Cells(13, TYIndex).Value
+
+OldATV = OldValue / OldTrans
+NewATV = NewValue / NewTrans
+
+ATVChangePC = (NewATV / OldATV) - 1
+
+TransChangePC = (NewTrans / OldTrans) - 1
+
+.Cells(i + 2, 30).Value = Weekmod
+.Cells(i + 2, 31).Value = TransChangePC
+.Cells(i + 2, 32).Value = ATVChangePC
+
+ThisWorkbook.Sheets("Weekly Book Template").Cells(9, 6).Value = WeekNum
+
+
+Next i
+End With
+
+
+
+End Sub
+
+
+Sub depreciated_ATVcharts()
+' Now the tables
+
+.Cells(44, 3).Value = "Week " & WeekNum
+
+'Sales
+SLYTotal = ThisWorkbook.Sheets("Total Value").Cells(5, LastWeekIndex).Value
+SLYBuilding = ThisWorkbook.Sheets("Total Value").Cells(10, LastWeekIndex).Value
+SLYSeasonal = ThisWorkbook.Sheets("Total Value").Cells(11, LastWeekIndex).Value
+SLYDecorative = ThisWorkbook.Sheets("Total Value").Cells(12, LastWeekIndex).Value
+SLYShowroom = ThisWorkbook.Sheets("Total Value").Cells(13, LastWeekIndex).Value
+
+STYTotal = ThisWorkbook.Sheets("Total Value").Cells(5, ThisWeekIndex).Value
+STYBuilding = ThisWorkbook.Sheets("Total Value").Cells(10, ThisWeekIndex).Value
+STYSeasonal = ThisWorkbook.Sheets("Total Value").Cells(11, ThisWeekIndex).Value
+STYDecorative = ThisWorkbook.Sheets("Total Value").Cells(12, ThisWeekIndex).Value
+STYShowroom = ThisWorkbook.Sheets("Total Value").Cells(13, ThisWeekIndex).Value
+
+'Transactions
+TLYTotal = ThisWorkbook.Sheets("Total Transactions").Cells(5, LastWeekIndex).Value
+TLYBuilding = ThisWorkbook.Sheets("Total Transactions").Cells(10, LastWeekIndex).Value
+TLYSeasonal = ThisWorkbook.Sheets("Total Transactions").Cells(11, LastWeekIndex).Value
+TLYDecorative = ThisWorkbook.Sheets("Total Transactions").Cells(12, LastWeekIndex).Value
+TLYShowroom = ThisWorkbook.Sheets("Total Transactions").Cells(13, LastWeekIndex).Value
+
+TTYTotal = ThisWorkbook.Sheets("Total Transactions").Cells(5, ThisWeekIndex).Value
+TTYBuilding = ThisWorkbook.Sheets("Total Transactions").Cells(10, ThisWeekIndex).Value
+TTYSeasonal = ThisWorkbook.Sheets("Total Transactions").Cells(11, ThisWeekIndex).Value
+TTYDecorative = ThisWorkbook.Sheets("Total Transactions").Cells(12, ThisWeekIndex).Value
+TTYShowroom = ThisWorkbook.Sheets("Total Transactions").Cells(13, ThisWeekIndex).Value
+
+'ATV
+ALYTotal = SLYTotal / TLYTotal
+ALYBuilding = SLYBuilding / TLYBuilding
+ALYSeasonal = SLYSeasonal / TLYSeasonal
+ALYDecorative = SLYDecorative / TLYDecorative
+ALYShowroom = SLYShowroom / TLYShowroom
+
+ATYTotal = STYTotal / TTYTotal
+ATYBuilding = STYBuilding / TTYBuilding
+ATYSeasonal = STYSeasonal / TTYSeasonal
+ATYDecorative = STYDecorative / TTYDecorative
+ATYShowroom = STYShowroom / TTYShowroom
+
+'Total
+.Cells(45, 3).Value = STYTotal
+.Cells(46, 3).Value = TTYTotal
+.Cells(47, 3).Value = ATYTotal
+.Cells(45, 4).Value = STYTotal - SLYTotal
+.Cells(46, 4).Value = TTYTotal - TLYTotal
+.Cells(47, 4).Value = ATYTotal - ALYTotal
+.Cells(45, 5).Value = (STYTotal / SLYTotal) - 1
+.Cells(46, 5).Value = (TTYTotal / TLYTotal) - 1
+.Cells(47, 5).Value = (ATYTotal / ALYTotal) - 1
+
+'Building
+.Cells(45, 6).Value = STYBuilding
+.Cells(46, 6).Value = TTYBuilding
+.Cells(47, 6).Value = ATYBuilding
+.Cells(45, 7).Value = STYBuilding - SLYBuilding
+.Cells(46, 7).Value = TTYBuilding - TLYBuilding
+.Cells(47, 7).Value = ATYBuilding - ALYBuilding
+.Cells(45, 8).Value = (STYBuilding / SLYBuilding) - 1
+.Cells(46, 8).Value = (TTYBuilding / TLYBuilding) - 1
+.Cells(47, 8).Value = (ATYBuilding / ALYBuilding) - 1
+
+'Decorative
+.Cells(45, 9).Value = STYDecorative
+.Cells(46, 9).Value = TTYDecorative
+.Cells(47, 9).Value = ATYDecorative
+.Cells(45, 10).Value = STYDecorative - SLYDecorative
+.Cells(46, 10).Value = TTYDecorative - TLYDecorative
+.Cells(47, 10).Value = ATYDecorative - ALYDecorative
+.Cells(45, 11).Value = (STYDecorative / SLYDecorative) - 1
+.Cells(46, 11).Value = (TTYDecorative / TLYDecorative) - 1
+.Cells(47, 11).Value = (ATYDecorative / ALYDecorative) - 1
+
+'Showroom
+.Cells(45, 12).Value = STYShowroom
+.Cells(46, 12).Value = TTYShowroom
+.Cells(47, 12).Value = ATYShowroom
+.Cells(45, 13).Value = STYShowroom - SLYShowroom
+.Cells(46, 13).Value = TTYShowroom - TLYShowroom
+.Cells(47, 13).Value = ATYShowroom - ALYShowroom
+.Cells(45, 14).Value = (STYShowroom / SLYShowroom) - 1
+.Cells(46, 14).Value = (TTYShowroom / TLYShowroom) - 1
+.Cells(47, 14).Value = (ATYShowroom / ALYShowroom) - 1
+
+'Seasonal
+.Cells(45, 15).Value = STYSeasonal
+.Cells(46, 15).Value = TTYSeasonal
+.Cells(47, 15).Value = ATYSeasonal
+.Cells(45, 16).Value = STYSeasonal - SLYSeasonal
+.Cells(46, 16).Value = TTYSeasonal - TLYSeasonal
+.Cells(47, 16).Value = ATYSeasonal - ALYSeasonal
+.Cells(45, 17).Value = (STYSeasonal / SLYSeasonal) - 1
+.Cells(46, 17).Value = (TTYSeasonal / TLYSeasonal) - 1
+.Cells(47, 17).Value = (ATYSeasonal / ALYSeasonal) - 1
+End Sub
+
